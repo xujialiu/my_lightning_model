@@ -11,32 +11,29 @@ class RETFoundLightning(pl.LightningModule):
     def __init__(
         self,
         img_size: int = 224,
-        learning_rate: float = 0.001, 
+        learning_rate: float = 0.001,
         num_classes: int = 5,
         drop_path_rate: float = 0.1,
-        global_pool:str = "avg",
+        global_pool: str = "avg",
         mixup: float = 0,
         cutmix: float = 0,
-        cutmix_minmax = None,
+        cutmix_minmax=None,
         mixup_prob: float = 1.0,
         mixup_switch_prob: float = 0.5,
-        mixup_mode:str = "batch",
-        smoothing:float=0.1,
+        mixup_mode: str = "batch",
+        smoothing: float = 0.1,
     ):
         super().__init__()
-        
+
         pl.seed_everything(1)
-        
+
         self.learning_rate = learning_rate
-        
         self.model = create_retfound_model(
             img_size, num_classes, drop_path_rate, global_pool
         )
         self.num_classes = num_classes
 
-        mixup_active = (
-        (mixup > 0) or (cutmix > 0.0) or (cutmix_minmax is not None)
-    )
+        mixup_active = (mixup > 0) or (cutmix > 0.0) or (cutmix_minmax is not None)
         # mixup
         if mixup_active:
             print("Mixup is activated!")
@@ -87,7 +84,7 @@ class RETFoundLightning(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        
+
         y = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
         loss = self.criterion(logits, y)
         self.log("train_loss", loss)
@@ -98,7 +95,7 @@ class RETFoundLightning(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        
+
         y = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
 
         loss = self.criterion(logits, y)
@@ -112,7 +109,7 @@ class RETFoundLightning(pl.LightningModule):
         x, y = batch
         logits = self(x)
         y = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
-        
+
         loss = self.criterion(logits, y)
         self.log("test_loss", loss, prog_bar=True)
         self.test_accuracy(logits, y)
@@ -128,5 +125,3 @@ class RETFoundLightning(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
         return optimizer
-
-
