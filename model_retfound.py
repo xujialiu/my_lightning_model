@@ -1,4 +1,5 @@
 from functools import partial
+
 from timm.models.vision_transformer import VisionTransformer
 from torch import nn
 import torch
@@ -40,5 +41,3 @@ def create_retfound_model(img_size, num_classes, drop_path_rate, global_pool, **
     )
 
     return model
-
-
