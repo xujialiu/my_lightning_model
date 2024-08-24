@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Optional
+from lightning.pytorch.utilities.types import EVAL_DATALOADERS
 import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
@@ -13,43 +14,43 @@ from timm.data import create_transform
 
 
 class PairedImageDataset(Dataset):
-    def __init__(self, data, data1_folder, data2_folder, transform=None):
+    def __init__(self, data, macula_folder, disc_folder, transform=None):
         self.data = data
-        self.data1_folder = data1_folder
-        self.data2_folder = data2_folder
+        self.macula_folder = macula_folder
+        self.disc_folder = disc_folder
         self.transform = transform
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        img1_name = self.data.iloc[idx, 0]
-        img2_name = self.data.iloc[idx, 1]
-        label = self.data.iloc[idx, 2]
+        img_name_macula = self.data.iloc[idx].loc["macula_filename"]
+        img_name_disc = self.data.iloc[idx].loc["disc_filename"]
+        label = self.data.iloc[idx].loc["label"]
 
-        img1_path = Path(self.data1_folder, img1_name)
-        img2_path = Path(self.data2_folder, img2_name)
+        img_path_macula = Path(self.macula_folder) / img_name_macula
+        img_path_disc = Path(self.disc_folder) / img_name_disc
 
-        img1 = Image.open(img1_path).convert("RGB")
-        img2 = Image.open(img2_path).convert("RGB")
+        img_macula = Image.open(img_path_macula).convert("RGB")
+        img_disc = Image.open(img_path_disc).convert("RGB")
 
         if self.transform:
-            img1 = self.transform(img1)
-            img2 = self.transform(img2)
+            img_macula = self.transform(img_macula)
+            img_disc = self.transform(img_disc)
 
-        return img1, img2, torch.tensor(label)
+        return img_macula, img_disc, torch.tensor(label)
 
 
 class PairedImageDataModule(pl.LightningDataModule):
     def __init__(
         self,
         excel_file: str,
-        data1_folder: str,
-        data2_folder: str,
+        macula_folder: str,
+        disc_folder: str,
         batch_size: int = 32,
         num_workers: int = 4,
         input_size: int = 224,
-        crop_boundary: list[int] = [0, 0, 256, 256],
+        crop_boundary: list[int] = [583, 124, 3194, 2324],
         color_jitter: float | tuple[float, ...] = 0.4,
         auto_augment: str | None = None,
         re_prob: float = 0,
@@ -57,9 +58,11 @@ class PairedImageDataModule(pl.LightningDataModule):
         re_count: int = 1,
     ):
         super().__init__()
+        self.save_hyperparameters()
+
         self.excel_file = excel_file
-        self.data1_folder = data1_folder
-        self.data2_folder = data2_folder
+        self.macula_folder = macula_folder
+        self.disc_folder = disc_folder
         self.batch_size = batch_size
         self.num_workers = num_workers
 
@@ -77,8 +80,8 @@ class PairedImageDataModule(pl.LightningDataModule):
             input_size=input_size, crop_boundary=crop_boundary
         )
 
-    def setup(self, stage: Optional[str] = None):
-
+    def prepare_data(self):
+        # 数据读取和分割操作移到这里
         data = pd.read_excel(self.excel_file)
         train_data, temp_data = train_test_split(
             data, test_size=0.3, stratify=data["label"], random_state=42
@@ -87,17 +90,32 @@ class PairedImageDataModule(pl.LightningDataModule):
             temp_data, test_size=0.5, stratify=temp_data["label"], random_state=42
         )
 
+        # 存储分割后的数据
+        self.train_data = train_data
+        self.val_data = val_data
+        self.test_data = test_data
+
+    def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
             self.train_dataset = PairedImageDataset(
-                train_data, self.data1_folder, self.data2_folder, self.transform
+                self.train_data,
+                self.macula_folder,
+                self.disc_folder,
+                self.train_transform,
             )
             self.val_dataset = PairedImageDataset(
-                val_data, self.data1_folder, self.data2_folder, self.transform
+                self.val_data,
+                self.macula_folder,
+                self.disc_folder,
+                self.val_test_predict_transform,
             )
 
         if stage == "test" or stage is None:
             self.test_dataset = PairedImageDataset(
-                test_data, self.data1_folder, self.data2_folder, self.transform
+                self.test_data,
+                self.macula_folder,
+                self.disc_folder,
+                self.val_test_predict_transform,
             )
 
     def train_dataloader(self):
@@ -129,10 +147,10 @@ class SingleImageDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        img_name = self.data.iloc[idx, :].loc[:, "macula_filename"]
-        label = self.data.iloc[idx, :].loc[:, "label"]
+        img_name = self.data.iloc[idx, :].loc["macula_filename"]
+        label = self.data.iloc[idx, :].loc["label"]
 
-        img_path = Path(self.data_folder, img_name)
+        img_path = Path(self.data_folder) / img_name
 
         img = Image.open(img_path).convert("RGB")
 
@@ -158,6 +176,8 @@ class SingleImageDataModule(pl.LightningDataModule):
         re_count: int = 1,
     ):
         super().__init__()
+        self.save_hyperparameters()
+
         self.excel_file = excel_file
         self.data_folder = data_folder
         self.batch_size = batch_size
@@ -176,6 +196,20 @@ class SingleImageDataModule(pl.LightningDataModule):
         self.val_test_predict_transform = get_val_test_predict_transform(
             input_size=input_size, crop_boundary=crop_boundary
         )
+
+    def prepare_data(self):
+        data = pd.read_excel(self.excel_file)
+
+        train_data, temp_data = train_test_split(
+            data, test_size=0.3, stratify=data["label"], random_state=42
+        )
+        val_data, test_data = train_test_split(
+            temp_data, test_size=0.5, stratify=temp_data["label"], random_state=42
+        )
+
+        self.train_data = train_data
+        self.val_data = val_data
+        self.test_data = test_data
 
     def setup(self, stage: Optional[str] = None):
         data = pd.read_excel(self.excel_file)
