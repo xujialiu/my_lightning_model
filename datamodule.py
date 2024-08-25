@@ -5,7 +5,7 @@ import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 import lightning.pytorch as pl
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -94,6 +94,12 @@ class PairedImageDataModule(pl.LightningDataModule):
         self.train_data = train_data
         self.val_data = val_data
         self.test_data = test_data
+        
+        # Pre-compute sampling weights
+        class_counts = self.train_data['label'].value_counts().sort_index()
+        total_samples = len(self.train_data)
+        class_weights = torch.FloatTensor(total_samples / (len(class_counts) * class_counts))
+        self.sample_weights = [class_weights[label] for label in self.train_data['label']]
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
@@ -109,6 +115,12 @@ class PairedImageDataModule(pl.LightningDataModule):
                 self.disc_folder,
                 self.val_test_predict_transform,
             )
+            
+            self.sampler = WeightedRandomSampler(
+                self.sample_weights,
+                num_samples=len(self.sample_weights),
+                replacement=True,
+            )
 
         if stage == "test" or stage is None:
             self.test_dataset = PairedImageDataset(
@@ -123,7 +135,7 @@ class PairedImageDataModule(pl.LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=True,
+            sampler=self.sampler,
         )
 
     def val_dataloader(self):
@@ -168,7 +180,7 @@ class SingleImageDataModule(pl.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 4,
         input_size: int = 224,
-        crop_boundary: list[int] = [0, 0, 256, 256],
+        crop_boundary: list[int] = [583, 124, 3194, 2324],
         color_jitter: float | tuple[float, ...] = 0.4,
         auto_augment: str | None = None,
         re_prob: float = 0,
@@ -211,6 +223,16 @@ class SingleImageDataModule(pl.LightningDataModule):
         self.val_data = val_data
         self.test_data = test_data
 
+        # Pre-compute sampling weights
+        class_counts = self.train_data["label"].value_counts().sort_index()
+        total_samples = len(self.train_data)
+        class_weights = torch.FloatTensor(
+            total_samples / (len(class_counts) * class_counts)
+        )
+        self.sample_weights = [
+            class_weights[label] for label in self.train_data["label"]
+        ]
+
     def setup(self, stage: Optional[str] = None):
         data = pd.read_excel(self.excel_file)
         train_data, temp_data = train_test_split(
@@ -222,10 +244,16 @@ class SingleImageDataModule(pl.LightningDataModule):
 
         if stage == "fit" or stage is None:
             self.train_dataset = SingleImageDataset(
-                train_data, self.data_folder, self.train_transform
+                train_data, self.data_folder, self.train_transform, 
             )
             self.val_dataset = SingleImageDataset(
                 val_data, self.data_folder, self.val_test_predict_transform
+            )
+
+            self.sampler = WeightedRandomSampler(
+                self.sample_weights,
+                num_samples=len(self.sample_weights),
+                replacement=True,
             )
 
         if stage == "test" or stage is None:
@@ -238,7 +266,7 @@ class SingleImageDataModule(pl.LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=True,
+            sampler=self.sampler,
         )
 
     def val_dataloader(self):
