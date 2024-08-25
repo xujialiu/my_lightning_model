@@ -17,9 +17,6 @@ class RETFoundModel(VisionTransformer):
         x = self.forward_head(x)
         if not self.global_pool:
             x = x[:, 0]
-            print(x.shape)
-            
-        print(x.shape)
         return x
 
 
