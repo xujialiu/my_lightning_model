@@ -1,8 +1,6 @@
-import math
 import lightning.pytorch as pl
 from torch.nn.init import trunc_normal_
 from torch.optim.adamw import AdamW
-from torch.optim.lr_scheduler import LambdaLR
 import lr_sched
 from model_retfound import create_retfound_model
 import torch
@@ -11,7 +9,6 @@ from timm.data.mixup import Mixup
 from torchmetrics import Accuracy, Precision, Recall, F1Score
 import torch.nn.functional as F
 from retfoud_lr_decay import param_groups_lrd
-from misc import NativeScalerWithGradNormCount as NativeScaler
 
 
 class RETFoundLightning(pl.LightningModule):
@@ -40,8 +37,6 @@ class RETFoundLightning(pl.LightningModule):
         super().__init__()
 
         pl.seed_everything(42)
-
-        self.automatic_optimization = False
 
         self.learning_rate = learning_rate
         self.batch_size = batch_size
@@ -128,27 +123,29 @@ class RETFoundLightning(pl.LightningModule):
 
     def on_fit_start(self) -> None:
         self.opt = self.optimizers()
-        self.scaler = NativeScaler()
 
     def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat_logits = self(x)
-        y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
-        loss = self.criterion(y_hat_logits, y_logits)
-        loss = loss / self.trainer.accumulate_grad_batches
+        # 每一个batch都要更新学习率
+        if batch_idx % self.trainer.accumulate_grad_batches == 0:
+            lr_sched.adjust_learning_rate(
+                self.optimizers(),
+                (
+                    batch_idx / self.trainer.num_training_batches
+                    + self.trainer.current_epoch
+                ),
+                warmup_epochs=self.warmup_epochs,
+                min_lr=self.min_lr,
+                lr=self.learning_rate,
+                epochs=self.trainer.max_epochs,
+            )
 
-        self.scaler(
-            loss,
-            self.opt,
-            clip_grad=None,
-            parameters=self.model.parameters(),
-            create_graph=False,
-            update_grad=(batch_idx + 1) % self.trainer.accumulate_grad_batches == 0,
-        ) 
+        lr, lr_scale = (
+            self.optimizers().param_groups[-1]["lr"],
+            self.optimizers().param_groups[-1]["lr_scale"],
+        )
+        effective_lr = lr * lr_scale
 
-        if (batch_idx + 1) % self.trainer.accumulate_grad_batches == 0:
-            # self.opt.step()
-            self.opt.zero_grad()
+        print(f"effective lr: {effective_lr}")
 
         x, y = batch
         y_hat_logits = self(x)
@@ -156,10 +153,14 @@ class RETFoundLightning(pl.LightningModule):
         y_hat = torch.argmax(y_hat_logits, dim=1)
 
         loss = self.criterion(y_hat_logits, y_logits)
+
         self.log("train_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
         self.train_accuracy(y_hat, y)
         self.log(
             "train_acc", self.train_accuracy, on_step=True, on_epoch=True, prog_bar=True
+        )
+        self.log(
+            "learning_rate", effective_lr, on_step=True, on_epoch=True, prog_bar=True
         )
         return loss
 
@@ -185,10 +186,10 @@ class RETFoundLightning(pl.LightningModule):
 
         self.log("test_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
 
-        self.test_accuracy(y_hat_logits, y_logits)
-        self.test_precision(y_hat_logits, y_logits)
-        self.test_recall(y_hat_logits, y_logits)
-        self.test_f1(y_hat_logits, y_logits)
+        self.test_accuracy(y_hat, y)
+        self.test_precision(y_hat, y)
+        self.test_recall(y_hat, y)
+        self.test_f1(y_hat, y)
 
         self.log(
             "test_acc", self.test_accuracy, on_step=True, on_epoch=True, prog_bar=True
@@ -206,7 +207,7 @@ class RETFoundLightning(pl.LightningModule):
         self.log("test_f1", self.test_f1, on_step=True, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
-        
+
         if self.learning_rate is None:
             eff_batch_size = (
                 self.batch_size
@@ -220,7 +221,7 @@ class RETFoundLightning(pl.LightningModule):
         param_groups = param_groups_lrd(
             self.model,
             self.weight_decay,
-            no_weight_decay_list=['pos_embed', 'cls_token', 'dist_token'],
+            no_weight_decay_list=["pos_embed", "cls_token", "dist_token"],
             layer_decay=self.layer_decay,
         )
 
@@ -228,21 +229,3 @@ class RETFoundLightning(pl.LightningModule):
         optimizer = AdamW(param_groups, lr=self.learning_rate)
 
         return [optimizer], []
-
-    def on_train_epoch_start(self):
-        # 在每个epoch结束时记录学习率
-        self.log("learning_rate", self.learning_rate, prog_bar=True)
-
-    def on_train_batch_start(self, batch: torch.Any, batch_idx: int):
-        if batch_idx % self.trainer.accumulate_grad_batches == 0:
-            lr_sched.adjust_learning_rate(
-                self.optimizers(),
-                (
-                    batch_idx / self.trainer.num_training_batches
-                    + self.trainer.current_epoch
-                ),
-                warmup_epochs=self.warmup_epochs,
-                min_lr=self.min_lr,
-                lr=self.learning_rate,
-                epochs=self.trainer.max_epochs,
-            )
