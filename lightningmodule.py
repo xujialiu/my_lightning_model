@@ -1,17 +1,31 @@
+import math
 import lightning.pytorch as pl
+from torch.nn.init import trunc_normal_
+from torch.optim.adamw import AdamW
+from torch.optim.lr_scheduler import LambdaLR
+import lr_sched
 from model_retfound import create_retfound_model
 import torch
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.data.mixup import Mixup
 from torchmetrics import Accuracy, Precision, Recall, F1Score
 import torch.nn.functional as F
+from retfoud_lr_decay import param_groups_lrd
+from misc import NativeScalerWithGradNormCount as NativeScaler
 
 
 class RETFoundLightning(pl.LightningModule):
     def __init__(
         self,
+        use_original_retfound_ckpt: str = None,
         img_size: int = 224,
-        learning_rate: float = 0.001,
+        batch_size: int = 32,
+        learning_rate: float = None,
+        base_learning_rate: float = 5e-3,
+        warmup_epochs: int = 10,
+        min_lr: float = 1e-6,
+        weight_decay: float = 0.05,
+        layer_decay: float = 0.65,
         num_classes: int = 5,
         drop_path_rate: float = 0.1,
         global_pool: str = "avg",
@@ -25,16 +39,33 @@ class RETFoundLightning(pl.LightningModule):
     ):
         super().__init__()
 
-        pl.seed_everything(1)
+        pl.seed_everything(42)
+
+        self.automatic_optimization = False
 
         self.learning_rate = learning_rate
+        self.batch_size = batch_size
+        self.weight_decay = weight_decay
+        self.layer_decay = layer_decay
+        self.warmup_epochs = warmup_epochs
+        self.min_lr = min_lr
+        self.base_learning_rate = base_learning_rate
+        self.use_original_retfound_ckpt = use_original_retfound_ckpt
+        self.num_classes = num_classes
+
         self.model = create_retfound_model(
             img_size, num_classes, drop_path_rate, global_pool
         )
-        self.num_classes = num_classes
+
+        if use_original_retfound_ckpt:
+            checkpoint = torch.load(use_original_retfound_ckpt, map_location="cpu")
+            checkpoint_model = checkpoint["model"]
+            self.model.load_state_dict(checkpoint_model, strict=False)
+            trunc_normal_(self.model.head.weight, std=2e-5)
 
         mixup_active = (mixup > 0) or (cutmix > 0.0) or (cutmix_minmax is not None)
-        # mixup
+
+        # mixup指标
         if mixup_active:
             print("Mixup is activated!")
 
@@ -59,12 +90,12 @@ class RETFoundLightning(pl.LightningModule):
             self.criterion = torch.nn.CrossEntropyLoss()
 
         # 初始化指标
+        # train_step指标
         self.train_accuracy = Accuracy(
             task="multiclass", num_classes=num_classes, top_k=1
         )
-        self.val_accuracy = Accuracy(
-            task="multiclass", num_classes=num_classes, top_k=1
-        )
+
+        # test_step指标
         self.test_accuracy = Accuracy(
             task="multiclass", num_classes=num_classes, top_k=1
         )
@@ -78,50 +109,140 @@ class RETFoundLightning(pl.LightningModule):
             task="multiclass", num_classes=num_classes, average="macro", top_k=1
         )
 
+        # val_step指标
+        self.val_accuracy = Accuracy(
+            task="multiclass", num_classes=num_classes, top_k=1
+        )
+        self.val_precision = Precision(
+            task="multiclass", num_classes=num_classes, average="macro", top_k=1
+        )
+        self.val_recall = Recall(
+            task="multiclass", num_classes=num_classes, average="macro", top_k=1
+        )
+        self.val_f1 = F1Score(
+            task="multiclass", num_classes=num_classes, average="macro", top_k=1
+        )
+
     def forward(self, x):
         return self.model(x)
 
+    def on_fit_start(self) -> None:
+        self.opt = self.optimizers()
+        self.scaler = NativeScaler()
+
     def training_step(self, batch, batch_idx):
         x, y = batch
-        logits = self(x)
+        y_hat_logits = self(x)
+        y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
+        loss = self.criterion(y_hat_logits, y_logits)
+        loss = loss / self.trainer.accumulate_grad_batches
 
-        y = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
-        loss = self.criterion(logits, y)
-        self.log("train_loss", loss)
-        self.train_accuracy(logits, y)
-        self.log("train_acc", self.train_accuracy, on_step=True, on_epoch=True)
+        self.scaler(
+            loss,
+            self.opt,
+            clip_grad=None,
+            parameters=self.model.parameters(),
+            create_graph=False,
+            update_grad=(batch_idx + 1) % self.trainer.accumulate_grad_batches == 0,
+        ) 
+
+        if (batch_idx + 1) % self.trainer.accumulate_grad_batches == 0:
+            # self.opt.step()
+            self.opt.zero_grad()
+
+        x, y = batch
+        y_hat_logits = self(x)
+        y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
+        y_hat = torch.argmax(y_hat_logits, dim=1)
+
+        loss = self.criterion(y_hat_logits, y_logits)
+        self.log("train_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+        self.train_accuracy(y_hat, y)
+        self.log(
+            "train_acc", self.train_accuracy, on_step=True, on_epoch=True, prog_bar=True
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        logits = self(x)
+        y_hat_logits = self(x)
+        y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
+        y_hat = torch.argmax(y_hat_logits, dim=1)
 
-        y = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
-
-        loss = self.criterion(logits, y)
-        self.log("val_loss", loss, prog_bar=True)
-        self.val_accuracy(logits, y)
+        loss = self.criterion(y_hat_logits, y_logits)
+        self.log("val_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+        self.val_accuracy(y_hat, y)
         self.log(
-            "val_acc", self.val_accuracy, on_step=False, on_epoch=True, prog_bar=True
+            "val_acc", self.val_accuracy, on_step=True, on_epoch=True, prog_bar=True
         )
 
     def test_step(self, batch, batch_idx):
         x, y = batch
-        logits = self(x)
-        y = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
+        y_hat_logits = self(x)
+        y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
+        y_hat = torch.argmax(y_hat_logits, dim=1)
+        loss = self.criterion(y_hat_logits, y_logits)
 
-        loss = self.criterion(logits, y)
-        self.log("test_loss", loss, prog_bar=True)
-        self.test_accuracy(logits, y)
-        self.test_precision(logits, y)
-        self.test_recall(logits, y)
-        self.test_f1(logits, y)
+        self.log("test_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
 
-        self.log("test_acc", self.test_accuracy, on_step=False, on_epoch=True)
-        self.log("test_precision", self.test_precision, on_step=False, on_epoch=True)
-        self.log("test_recall", self.test_recall, on_step=False, on_epoch=True)
-        self.log("test_f1", self.test_f1, on_step=False, on_epoch=True)
+        self.test_accuracy(y_hat_logits, y_logits)
+        self.test_precision(y_hat_logits, y_logits)
+        self.test_recall(y_hat_logits, y_logits)
+        self.test_f1(y_hat_logits, y_logits)
+
+        self.log(
+            "test_acc", self.test_accuracy, on_step=True, on_epoch=True, prog_bar=True
+        )
+        self.log(
+            "test_precision",
+            self.test_precision,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+        )
+        self.log(
+            "test_recall", self.test_recall, on_step=True, on_epoch=True, prog_bar=True
+        )
+        self.log("test_f1", self.test_f1, on_step=True, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
-        return optimizer
+        
+        if self.learning_rate is None:
+            eff_batch_size = (
+                self.batch_size
+                * self.trainer.accumulate_grad_batches
+                * self.trainer.world_size
+            )
+            self.learning_rate = self.base_learning_rate * eff_batch_size / 256.0
+            print(f"base lr: {self.base_learning_rate}")
+            print(f"actual lr: {self.learning_rate}")
+
+        param_groups = param_groups_lrd(
+            self.model,
+            self.weight_decay,
+            no_weight_decay_list=['pos_embed', 'cls_token', 'dist_token'],
+            layer_decay=self.layer_decay,
+        )
+
+        # 3. 初始化AdamW优化器
+        optimizer = AdamW(param_groups, lr=self.learning_rate)
+
+        return [optimizer], []
+
+    def on_train_epoch_start(self):
+        # 在每个epoch结束时记录学习率
+        self.log("learning_rate", self.learning_rate, prog_bar=True)
+
+    def on_train_batch_start(self, batch: torch.Any, batch_idx: int):
+        if batch_idx % self.trainer.accumulate_grad_batches == 0:
+            lr_sched.adjust_learning_rate(
+                self.optimizers(),
+                (
+                    batch_idx / self.trainer.num_training_batches
+                    + self.trainer.current_epoch
+                ),
+                warmup_epochs=self.warmup_epochs,
+                min_lr=self.min_lr,
+                lr=self.learning_rate,
+                epochs=self.trainer.max_epochs,
+            )
