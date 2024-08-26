@@ -1,7 +1,7 @@
 import lightning.pytorch as pl
 from torch.nn.init import trunc_normal_
 from torch.optim.adamw import AdamW
-import lr_sched
+import retfound_lr_sched
 from model_retfound import create_retfound_model
 import torch
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
@@ -127,7 +127,7 @@ class RETFoundLightning(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         # 每一个batch都要更新学习率
         if batch_idx % self.trainer.accumulate_grad_batches == 0:
-            lr_sched.adjust_learning_rate(
+            retfound_lr_sched.adjust_learning_rate(
                 self.optimizers(),
                 (
                     batch_idx / self.trainer.num_training_batches
