@@ -5,7 +5,6 @@ def adjust_learning_rate(optimizer, current_epoch, warmup_epochs, lr, min_lr, ep
     """Decay the learning rate with half-cycle cosine after warmup"""
     if current_epoch < warmup_epochs:
         lr = lr * current_epoch / warmup_epochs
-        print(f"lr: {lr}, warmup_epochs: {warmup_epochs}, current_epoch: {current_epoch}")
     else:
         lr = min_lr + (lr - min_lr) * 0.5 * (
             1.0
