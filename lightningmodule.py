@@ -7,7 +7,17 @@ from model_retfound import create_retfound_model
 import torch
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.data.mixup import Mixup
-from torchmetrics import Accuracy, Precision, Recall, F1Score
+from torchmetrics import MetricCollection
+from torchmetrics.classification import (
+    MulticlassAccuracy,
+    MulticlassPrecision,
+    MulticlassRecall,
+    MulticlassSpecificity,
+    MulticlassF1Score,
+    MulticlassAUROC,
+    MulticlassAveragePrecision,
+    MulticlassMatthewsCorrCoef,
+)
 import torch.nn.functional as F
 from retfoud_lr_decay import param_groups_lrd
 from torchmetrics.classification import MulticlassConfusionMatrix
@@ -87,39 +97,44 @@ class RETFoundLightning(pl.LightningModule):
         else:
             self.criterion = torch.nn.CrossEntropyLoss()
 
-        # 初始化指标
         # train_step指标
-        self.train_accuracy = Accuracy(
-            task="multiclass", num_classes=num_classes, top_k=1
+        self.train_metrics = MetricCollection(
+            {"train_acc": MulticlassAccuracy(num_classes=num_classes, top_k=1)}
         )
 
-        # test_step指标
-        self.test_accuracy = Accuracy(
-            task="multiclass", num_classes=num_classes, top_k=1
-        )
-        self.test_precision = Precision(
-            task="multiclass", num_classes=num_classes, average="macro", top_k=1
-        )
-        self.test_recall = Recall(
-            task="multiclass", num_classes=num_classes, average="macro", top_k=1
-        )
-        self.test_f1 = F1Score(
-            task="multiclass", num_classes=num_classes, average="macro", top_k=1
+        metrics = MetricCollection(
+            {
+                "acc_macro": MulticlassAccuracy(
+                    num_classes=num_classes, average="macro", top_k=1
+                ),
+                "acc_weighted": MulticlassAccuracy(
+                    num_classes=num_classes, average="weighted", top_k=1
+                ),
+                "sensitivity": MulticlassRecall(
+                    num_classes=num_classes, average="macro"
+                ),
+                "specificity": MulticlassSpecificity(
+                    num_classes=num_classes, average="macro"
+                ),
+                "precision": MulticlassPrecision(
+                    num_classes=num_classes, average="macro"
+                ),
+                "auc_roc": MulticlassAUROC(num_classes=num_classes, average="macro"),
+                "auc_pr": MulticlassAveragePrecision(
+                    num_classes=num_classes, average="macro"
+                ),
+                "f1": MulticlassF1Score(
+                    num_classes=num_classes, average="macro"
+                ),  # y_hat, y
+                "mcc": MulticlassMatthewsCorrCoef(num_classes=num_classes).to(torch.float32),
+            }
         )
 
         # val_step指标
-        self.val_accuracy = Accuracy(
-            task="multiclass", num_classes=num_classes, top_k=1
-        )
-        self.val_precision = Precision(
-            task="multiclass", num_classes=num_classes, average="macro", top_k=1
-        )
-        self.val_recall = Recall(
-            task="multiclass", num_classes=num_classes, average="macro", top_k=1
-        )
-        self.val_f1 = F1Score(
-            task="multiclass", num_classes=num_classes, average="macro", top_k=1
-        )
+        self.val_metrics = metrics.clone(prefix="val_")
+
+        # test_step指标
+        self.test_metrics = metrics.clone(prefix="test_")
 
         self.val_confusion_matrix = MulticlassConfusionMatrix(
             num_classes=self.num_classes
@@ -146,27 +161,27 @@ class RETFoundLightning(pl.LightningModule):
                 epochs=self.trainer.max_epochs,
             )
 
+        x, y = batch
+        y_hat_logits = self(x)
+        y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
+        y_hat = torch.argmax(y_hat_logits, dim=1)
+        y_hat_probs = F.softmax(y_hat_logits, dim=1)
+
+        # log loss
+        loss = self.criterion(y_hat_logits, y_logits)
+        self.log("train_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+
+        # log train metrics
+        train_metrics = self.train_metrics(y_hat_probs, y)
+        self.log_dict(train_metrics, on_step=True, on_epoch=True, prog_bar=True)
+
+        # log lr
         lr, lr_scale = (
             self.optimizers().param_groups[-1]["lr"],
             self.optimizers().param_groups[-1]["lr_scale"],
         )
         effective_lr = lr * lr_scale
-
-        x, y = batch
-        y_hat_logits = self(x)
-        y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
-        y_hat = torch.argmax(y_hat_logits, dim=1)
-
-        loss = self.criterion(y_hat_logits, y_logits)
-
-        self.log("train_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
-        self.train_accuracy(y_hat, y)
-        self.log(
-            "train_acc", self.train_accuracy, on_step=True, on_epoch=True, prog_bar=True
-        )
-        self.log(
-            "learning_rate", effective_lr, on_step=True, on_epoch=True, prog_bar=True
-        )
+        self.log("lr", effective_lr, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -174,15 +189,18 @@ class RETFoundLightning(pl.LightningModule):
         y_hat_logits = self(x)
         y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
         y_hat = torch.argmax(y_hat_logits, dim=1)
+        y_hat_probs = F.softmax(y_hat_logits, dim=1)
 
         self.val_confusion_matrix(y_hat, y)
 
         loss = self.criterion(y_hat_logits, y_logits)
         self.log("val_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
-        self.val_accuracy(y_hat, y)
-        self.log(
-            "val_acc", self.val_accuracy, on_step=True, on_epoch=True, prog_bar=True
-        )
+
+        # log val metrics
+        val_metrics = self.val_metrics(y_hat_probs, y)
+        if 'val_mcc' in val_metrics:
+            val_metrics['val_mcc'] = val_metrics['val_mcc'].float()
+        self.log_dict(val_metrics, on_step=True, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self):
         confusion_matrix = self.val_confusion_matrix.compute()
@@ -215,29 +233,15 @@ class RETFoundLightning(pl.LightningModule):
         y_hat_logits = self(x)
         y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
         y_hat = torch.argmax(y_hat_logits, dim=1)
+        y_hat_probs = F.softmax(y_hat_logits, dim=1)
+
         loss = self.criterion(y_hat_logits, y_logits)
 
         self.log("test_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
 
-        self.test_accuracy(y_hat, y)
-        self.test_precision(y_hat, y)
-        self.test_recall(y_hat, y)
-        self.test_f1(y_hat, y)
-
-        self.log(
-            "test_acc", self.test_accuracy, on_step=True, on_epoch=True, prog_bar=True
-        )
-        self.log(
-            "test_precision",
-            self.test_precision,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-        )
-        self.log(
-            "test_recall", self.test_recall, on_step=True, on_epoch=True, prog_bar=True
-        )
-        self.log("test_f1", self.test_f1, on_step=True, on_epoch=True, prog_bar=True)
+        # log test metrics
+        test_metrics = self.test_metrics(y_hat_probs, y)
+        self.log_dict(test_metrics, on_step=True, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
 
