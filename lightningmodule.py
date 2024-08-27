@@ -1,4 +1,5 @@
 import lightning.pytorch as pl
+from matplotlib import pyplot as plt
 from torch.nn.init import trunc_normal_
 from torch.optim.adamw import AdamW
 import retfound_lr_sched
@@ -9,6 +10,8 @@ from timm.data.mixup import Mixup
 from torchmetrics import Accuracy, Precision, Recall, F1Score
 import torch.nn.functional as F
 from retfoud_lr_decay import param_groups_lrd
+from torchmetrics.classification import MulticlassConfusionMatrix
+import seaborn as sns
 
 
 class RETFoundLightning(pl.LightningModule):
@@ -118,6 +121,10 @@ class RETFoundLightning(pl.LightningModule):
             task="multiclass", num_classes=num_classes, average="macro", top_k=1
         )
 
+        self.val_confusion_matrix = MulticlassConfusionMatrix(
+            num_classes=self.num_classes
+        )
+
     def forward(self, x):
         return self.model(x)
 
@@ -145,8 +152,6 @@ class RETFoundLightning(pl.LightningModule):
         )
         effective_lr = lr * lr_scale
 
-        print(f"effective lr: {effective_lr}")
-
         x, y = batch
         y_hat_logits = self(x)
         y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
@@ -170,12 +175,40 @@ class RETFoundLightning(pl.LightningModule):
         y_logits = F.one_hot(y.to(torch.int64), num_classes=self.num_classes)
         y_hat = torch.argmax(y_hat_logits, dim=1)
 
+        self.val_confusion_matrix(y_hat, y)
+
         loss = self.criterion(y_hat_logits, y_logits)
         self.log("val_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
         self.val_accuracy(y_hat, y)
         self.log(
             "val_acc", self.val_accuracy, on_step=True, on_epoch=True, prog_bar=True
         )
+
+    def on_validation_epoch_end(self):
+        confusion_matrix = self.val_confusion_matrix.compute()
+        self.save_confusion_metrics(confusion_matrix)
+        self.val_confusion_matrix.reset()
+
+    def save_confusion_metrics(self, confusion_matrix):
+
+        # 归一化混淆矩阵
+        norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
+            dim=1, keepdim=True
+        )
+
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            norm_confusion_matrix.cpu().numpy(), annot=True, fmt=".2f", cmap="Blues"
+        )
+
+        plt.title(f"Normalized Confusion Matrix - Epoch {self.current_epoch}")
+        plt.xlabel("Predicted")
+        plt.ylabel("True")
+
+        plt.savefig(
+            f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
+        )
+        plt.close()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
