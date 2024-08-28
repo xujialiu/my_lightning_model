@@ -123,10 +123,10 @@ class RETFoundLightning(pl.LightningModule):
                 "auc_pr": MulticlassAveragePrecision(
                     num_classes=num_classes, average="macro"
                 ),
-                "f1": MulticlassF1Score(
-                    num_classes=num_classes, average="macro"
-                ),  # y_hat, y
-                "mcc": MulticlassMatthewsCorrCoef(num_classes=num_classes).to(torch.float32),
+                "f1": MulticlassF1Score(num_classes=num_classes, average="macro"),
+                "mcc": MulticlassMatthewsCorrCoef(num_classes=num_classes).to(
+                    torch.float32
+                ),
             }
         )
 
@@ -173,7 +173,7 @@ class RETFoundLightning(pl.LightningModule):
 
         # log train metrics
         train_metrics = self.train_metrics(y_hat_probs, y)
-        self.log_dict(train_metrics, on_step=True, on_epoch=True, prog_bar=True)
+        self.log_dict(train_metrics, on_step=True, prog_bar=True)
 
         # log lr
         lr, lr_scale = (
@@ -181,7 +181,7 @@ class RETFoundLightning(pl.LightningModule):
             self.optimizers().param_groups[-1]["lr_scale"],
         )
         effective_lr = lr * lr_scale
-        self.log("lr", effective_lr, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("lr", effective_lr, on_step=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -194,13 +194,13 @@ class RETFoundLightning(pl.LightningModule):
         self.val_confusion_matrix(y_hat, y)
 
         loss = self.criterion(y_hat_logits, y_logits)
-        self.log("val_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+        self.log("val_loss", loss, on_epoch=True)
 
         # log val metrics
         val_metrics = self.val_metrics(y_hat_probs, y)
-        if 'val_mcc' in val_metrics:
-            val_metrics['val_mcc'] = val_metrics['val_mcc'].float()
-        self.log_dict(val_metrics, on_step=True, on_epoch=True, prog_bar=True)
+        if "val_mcc" in val_metrics:
+            val_metrics["val_mcc"] = val_metrics["val_mcc"].float()
+        self.log_dict(val_metrics, on_epoch=True)
 
     def on_validation_epoch_end(self):
         confusion_matrix = self.val_confusion_matrix.compute()
@@ -208,7 +208,6 @@ class RETFoundLightning(pl.LightningModule):
         self.val_confusion_matrix.reset()
 
     def save_confusion_metrics(self, confusion_matrix):
-
         # 归一化混淆矩阵
         norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
             dim=1, keepdim=True
@@ -237,11 +236,11 @@ class RETFoundLightning(pl.LightningModule):
 
         loss = self.criterion(y_hat_logits, y_logits)
 
-        self.log("test_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+        self.log("test_loss", loss, on_epoch=True)
 
         # log test metrics
         test_metrics = self.test_metrics(y_hat_probs, y)
-        self.log_dict(test_metrics, on_step=True, on_epoch=True, prog_bar=True)
+        self.log_dict(test_metrics, on_epoch=True)
 
     def configure_optimizers(self):
 
