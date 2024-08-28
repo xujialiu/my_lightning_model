@@ -5,28 +5,47 @@ import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
 import torch
-from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+import torch.utils
+from torch.utils.data import (
+    Dataset,
+    DataLoader,
+    WeightedRandomSampler,
+    SequentialSampler,
+)
 import lightning.pytorch as pl
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torchvision.transforms import InterpolationMode
 from timm.data import create_transform
+from torchvision.transforms import Compose
 
 
 class PairedImageDataset(Dataset):
-    def __init__(self, data, macula_folder, disc_folder, transform=None):
-        self.data = data
+    def __init__(
+        self,
+        df,
+        macula_folder,
+        disc_folder,
+        macula_img_path_col="macula_filename",
+        disc_img_path_col="disc_filename",
+        label_col="label",
+        transform=None,
+    ):
+        self.df = df
         self.macula_folder = macula_folder
         self.disc_folder = disc_folder
+        self.macula_img_path_col = macula_img_path_col
+        self.disc_img_path_col = disc_img_path_col
+        self.label_col = label_col
         self.transform = transform
 
     def __len__(self):
-        return len(self.data)
+        return len(self.df)
 
     def __getitem__(self, idx):
-        img_name_macula = self.data.iloc[idx].loc["macula_filename"]
-        img_name_disc = self.data.iloc[idx].loc["disc_filename"]
-        label = self.data.iloc[idx].loc["label"]
+        img_name_macula = self.df.iloc[idx].loc[self.macula_img_path_col]
+        img_name_disc = self.df.iloc[idx].loc[self.disc_img_path_col]
+        label = self.df.iloc[idx].loc[self.label_col]
 
         img_path_macula = Path(self.macula_folder) / img_name_macula
         img_path_disc = Path(self.disc_folder) / img_name_disc
@@ -47,6 +66,8 @@ class PairedImageDataModule(pl.LightningDataModule):
         excel_file: str,
         macula_folder: str,
         disc_folder: str,
+        macula_img_path_col: str,
+        disc_img_path_col: str,
         batch_size: int = 32,
         num_workers: int = 4,
         input_size: int = 224,
@@ -65,6 +86,8 @@ class PairedImageDataModule(pl.LightningDataModule):
         self.disc_folder = disc_folder
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.macula_img_path_col = macula_img_path_col
+        self.disc_img_path_col = disc_img_path_col
 
         self.train_transform = get_train_transform(
             input_size=input_size,
@@ -94,12 +117,16 @@ class PairedImageDataModule(pl.LightningDataModule):
         self.train_data = train_data
         self.val_data = val_data
         self.test_data = test_data
-        
+
         # Pre-compute sampling weights
-        class_counts = self.train_data['label'].value_counts().sort_index()
+        class_counts = self.train_data["label"].value_counts().sort_index()
         total_samples = len(self.train_data)
-        class_weights = torch.FloatTensor(total_samples / (len(class_counts) * class_counts))
-        self.sample_weights = [class_weights[label] for label in self.train_data['label']]
+        class_weights = torch.FloatTensor(
+            total_samples / (len(class_counts) * class_counts)
+        )
+        self.sample_weights = [
+            class_weights[label] for label in self.train_data["label"]
+        ]
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
@@ -107,15 +134,19 @@ class PairedImageDataModule(pl.LightningDataModule):
                 self.train_data,
                 self.macula_folder,
                 self.disc_folder,
+                self.macula_img_path_col,
+                self.disc_img_path_col,
                 self.train_transform,
             )
             self.val_dataset = PairedImageDataset(
                 self.val_data,
                 self.macula_folder,
                 self.disc_folder,
+                self.macula_img_path_col,
+                self.disc_img_path_col,
                 self.val_test_predict_transform,
             )
-            
+
             self.sampler = WeightedRandomSampler(
                 self.sample_weights,
                 num_samples=len(self.sample_weights),
@@ -127,6 +158,8 @@ class PairedImageDataModule(pl.LightningDataModule):
                 self.test_data,
                 self.macula_folder,
                 self.disc_folder,
+                self.macula_img_path_col,
+                self.disc_img_path_col,
                 self.val_test_predict_transform,
             )
 
@@ -140,27 +173,42 @@ class PairedImageDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
         )
 
     def test_dataloader(self):
         return DataLoader(
-            self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers
+            self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
         )
 
 
 class SingleImageDataset(Dataset):
-    def __init__(self, data, data_folder, transform=None):
-        self.data = data
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        label_col: str,
+        img_path_col: str,
+        data_folder: str,
+        transform: Optional[Compose] = None,
+    ):
+        self.df = df
         self.data_folder = data_folder
         self.transform = transform
+        self.label_col = label_col
+        self.img_path_col = img_path_col
 
     def __len__(self):
-        return len(self.data)
+        return len(self.df)
 
     def __getitem__(self, idx):
-        img_name = self.data.iloc[idx, :].loc["macula_filename"]
-        label = self.data.iloc[idx, :].loc["label"]
+        img_name = self.df.iloc[idx, :].loc["macula_filename"]
+        label = self.df.iloc[idx, :].loc[self.label_col]
 
         img_path = Path(self.data_folder) / img_name
 
@@ -176,6 +224,8 @@ class SingleImageDataModule(pl.LightningDataModule):
     def __init__(
         self,
         excel_file: str,
+        img_path_col: str,
+        label_col: str,
         data_folder: str,
         batch_size: int = 32,
         num_workers: int = 4,
@@ -194,6 +244,8 @@ class SingleImageDataModule(pl.LightningDataModule):
         self.data_folder = data_folder
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.img_path_col = img_path_col
+        self.label_col = label_col
 
         self.train_transform = get_train_transform(
             input_size=input_size,
@@ -244,10 +296,18 @@ class SingleImageDataModule(pl.LightningDataModule):
 
         if stage == "fit" or stage is None:
             self.train_dataset = SingleImageDataset(
-                train_data, self.data_folder, self.train_transform, 
+                df =train_data,
+                label_col = self.label_col,
+                img_path_col = self.img_path_col,
+                data_folder =self.data_folder,
+                transform =self.train_transform,
             )
             self.val_dataset = SingleImageDataset(
-                val_data, self.data_folder, self.val_test_predict_transform
+                df = val_data,
+                label_col = self.label_col,
+                img_path_col = self.img_path_col,
+                data_folder =self.data_folder,
+                transform =self.train_transform,
             )
 
             self.sampler = WeightedRandomSampler(
@@ -258,7 +318,11 @@ class SingleImageDataModule(pl.LightningDataModule):
 
         if stage == "test" or stage is None:
             self.test_dataset = SingleImageDataset(
-                test_data, self.data_folder, self.val_test_predict_transform
+                df = test_data,
+                label_col = self.label_col,
+                img_path_col = self.img_path_col,
+                data_folder =self.data_folder,
+                transform =self.train_transform,
             )
 
     def train_dataloader(self):
@@ -271,14 +335,19 @@ class SingleImageDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
         )
 
     def test_dataloader(self):
         return DataLoader(
-            self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers
+            self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
         )
-
 
 def get_val_test_predict_transform(input_size: int, crop_boundary: list[int]):
     mean = IMAGENET_DEFAULT_MEAN

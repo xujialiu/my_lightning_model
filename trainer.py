@@ -53,13 +53,14 @@ trainer = Trainer(
     precision="16-mixed",
 )
 
-
 model = RETFoundLightning(
     use_original_retfound_ckpt="/home/xujialiu/mnt-4T-xujialiu/my_lightning_model/xujialiu-mnt-4t/my-model/other_models/model-checkpoints/RETFound.pth",
     warmup_epochs=5,
 )
 datamodule = SingleImageDataModule(
     excel_file="data_cleansing/get_macula_table/macula_table.xlsx",
+    img_path_col="macula_filename",
+    label_col="label",
     data_folder="/home/xujialiu/mnt-4T-xujialiu/my_lightning_model/xujialiu-mnt-4t/data_macula_all",
     batch_size=6,
 )
