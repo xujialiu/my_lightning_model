@@ -14,13 +14,8 @@ checkpoint_callback = ModelCheckpoint(
     save_top_k=-1,
 )
 
-
-default_root_dir = (
-    "/home/xujialiu/mnt-4T-xujialiu/my_lightning_model/xujialiu-mnt-4t/test_datamodule"
-)
-
 tensorboard_logger = TensorBoardLogger(save_dir="test_root", name="tensorboard")
-csv_logger = CSVLogger(save_dir="test_root", name="csv")
+csv_logger = CSVLogger(save_dir="test_root", name="csv", flush_logs_every_n_steps=20)
 loggers = [tensorboard_logger, csv_logger]
 
 # trainer = Trainer(
@@ -46,7 +41,7 @@ trainer = Trainer(
     callbacks=[checkpoint_callback],
     logger=loggers,
     use_distributed_sampler=False,
-    limit_train_batches=0.1,
+    limit_train_batches=0.05,
     limit_val_batches=0.03,
     limit_test_batches=0.03,
     benchmark=True,
