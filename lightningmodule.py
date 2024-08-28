@@ -3,6 +3,7 @@ from matplotlib import pyplot as plt
 from torch.nn.init import trunc_normal_
 from torch.optim.adamw import AdamW
 import retfound_lr_sched
+from retfound_pos_embed import interpolate_pos_embed
 from model_retfound import create_retfound_model
 import torch
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
@@ -76,6 +77,9 @@ class RETFoundLightning(pl.LightningModule):
         if use_original_retfound_ckpt:
             checkpoint = torch.load(use_original_retfound_ckpt, map_location="cpu")
             checkpoint_model = checkpoint["model"]
+
+            interpolate_pos_embed(self.model, checkpoint_model)
+
             self.model.load_state_dict(checkpoint_model, strict=False)
             trunc_normal_(self.model.head.weight, std=2e-5)
 
