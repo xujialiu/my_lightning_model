@@ -8,19 +8,27 @@ import torch
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.data.mixup import Mixup
 from torchmetrics import MetricCollection
+import torch.nn.functional as F
+from retfoud_lr_decay import param_groups_lrd
 from torchmetrics.classification import (
+    BinaryAccuracy,
+    BinaryAUROC,
+    BinaryAveragePrecision,
+    BinaryF1Score,
+    BinaryMatthewsCorrCoef,
+    BinaryPrecision,
+    BinaryRecall,
+    BinarySpecificity,
     MulticlassAccuracy,
+    MulticlassAUROC,
+    MulticlassAveragePrecision,
+    MulticlassF1Score,
+    MulticlassMatthewsCorrCoef,
     MulticlassPrecision,
     MulticlassRecall,
     MulticlassSpecificity,
-    MulticlassF1Score,
-    MulticlassAUROC,
-    MulticlassAveragePrecision,
-    MulticlassMatthewsCorrCoef,
 )
-import torch.nn.functional as F
-from retfoud_lr_decay import param_groups_lrd
-from torchmetrics.classification import MulticlassConfusionMatrix
+from torchmetrics.classification import BinaryConfusionMatrix, MulticlassConfusionMatrix
 import seaborn as sns
 
 
@@ -97,48 +105,73 @@ class RETFoundLightning(pl.LightningModule):
         else:
             self.criterion = torch.nn.CrossEntropyLoss()
 
-        # train_step指标
-        self.train_metrics = MetricCollection(
-            {"train_acc": MulticlassAccuracy(num_classes=num_classes, top_k=1)}
-        )
+        self.train_metrics = self._get_train_metrics()
+        self.val_metrics = self._get_eval_metrics(prefix="val_")
+        self.test_metrics = self._get_eval_metrics(prefix="test_")
+        self.val_confusion_matrix = self._get_confusion_matrix()
 
-        metrics = MetricCollection(
-            {
-                "acc_macro": MulticlassAccuracy(
-                    num_classes=num_classes, average="macro", top_k=1
-                ),
-                "acc_weighted": MulticlassAccuracy(
-                    num_classes=num_classes, average="weighted", top_k=1
-                ),
-                "sensitivity": MulticlassRecall(
-                    num_classes=num_classes, average="macro"
-                ),
-                "specificity": MulticlassSpecificity(
-                    num_classes=num_classes, average="macro"
-                ),
-                "precision": MulticlassPrecision(
-                    num_classes=num_classes, average="macro"
-                ),
-                "auc_roc": MulticlassAUROC(num_classes=num_classes, average="macro"),
-                "auc_pr": MulticlassAveragePrecision(
-                    num_classes=num_classes, average="macro"
-                ),
-                "f1": MulticlassF1Score(num_classes=num_classes, average="macro"),
-                "mcc": MulticlassMatthewsCorrCoef(num_classes=num_classes).to(
-                    torch.float32
-                ),
-            }
-        )
+    def _get_train_metrics(self):
+        if self.num_classes == 2:
+            return MetricCollection({"train_acc": BinaryAccuracy()})
+        else:
+            return MetricCollection(
+                {"train_acc": MulticlassAccuracy(num_classes=self.num_classes, top_k=1)}
+            )
 
-        # val_step指标
-        self.val_metrics = metrics.clone(prefix="val_")
+    def _get_eval_metrics(self, prefix=""):
+        if self.num_classes == 2:
+            return MetricCollection(
+                {
+                    "acc": BinaryAccuracy(),
+                    "auc_roc": BinaryAUROC(),
+                    "auc_pr": BinaryAveragePrecision(),
+                    "f1": BinaryF1Score(),
+                    "mcc": BinaryMatthewsCorrCoef(),
+                    "precision": BinaryPrecision(),
+                    "recall": BinaryRecall(),
+                    "specificity": BinarySpecificity(),
+                },
+                prefix=prefix,
+            )
+        else:
+            return MetricCollection(
+                {
+                    "acc_macro": MulticlassAccuracy(
+                        num_classes=self.num_classes, average="macro", top_k=1
+                    ),
+                    "acc_weighted": MulticlassAccuracy(
+                        num_classes=self.num_classes, average="weighted", top_k=1
+                    ),
+                    "sensitivity": MulticlassRecall(
+                        num_classes=self.num_classes, average="macro"
+                    ),
+                    "specificity": MulticlassSpecificity(
+                        num_classes=self.num_classes, average="macro"
+                    ),
+                    "precision": MulticlassPrecision(
+                        num_classes=self.num_classes, average="macro"
+                    ),
+                    "auc_roc": MulticlassAUROC(
+                        num_classes=self.num_classes, average="macro"
+                    ),
+                    "auc_pr": MulticlassAveragePrecision(
+                        num_classes=self.num_classes, average="macro"
+                    ),
+                    "f1": MulticlassF1Score(
+                        num_classes=self.num_classes, average="macro"
+                    ),
+                    "mcc": MulticlassMatthewsCorrCoef(num_classes=self.num_classes).to(
+                        torch.float32
+                    ),
+                },
+                prefix=prefix,
+            )
 
-        # test_step指标
-        self.test_metrics = metrics.clone(prefix="test_")
-
-        self.val_confusion_matrix = MulticlassConfusionMatrix(
-            num_classes=self.num_classes
-        )
+    def _get_confusion_matrix(self):
+        if self.num_classes == 2:
+            return BinaryConfusionMatrix()
+        else:
+            return MulticlassConfusionMatrix(num_classes=self.num_classes)
 
     def forward(self, x):
         return self.model(x)
@@ -167,15 +200,16 @@ class RETFoundLightning(pl.LightningModule):
         y_hat = torch.argmax(y_hat_logits, dim=1)
         y_hat_probs = F.softmax(y_hat_logits, dim=1)
 
-        # log loss
+        # log train loss
         loss = self.criterion(y_hat_logits, y_logits)
-        self.log("train_loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+        self.log("train_loss_epoch", loss, on_epoch=True, on_step=False, prog_bar=False)
+        self.log("train_loss_step", loss, on_epoch=False, on_step=True, prog_bar=True)
 
         # log train metrics
         train_metrics = self.train_metrics(y_hat_probs, y)
         self.log_dict(train_metrics, on_step=True, prog_bar=True)
 
-        # log lr
+        # log train lr
         lr, lr_scale = (
             self.optimizers().param_groups[-1]["lr"],
             self.optimizers().param_groups[-1]["lr_scale"],
