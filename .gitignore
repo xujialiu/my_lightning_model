@@ -10,6 +10,7 @@ tabular_data/
 data/
 lightning_logs/
 *.ckpt
+risk_365/
 
 
 # Byte-compiled / optimized / DLL files
