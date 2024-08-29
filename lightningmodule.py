@@ -55,6 +55,7 @@ class RETFoundLightning(pl.LightningModule):
         mixup_switch_prob: float = 0.5,
         mixup_mode: str = "batch",
         smoothing: float = 0.1,
+        is_save_confusion_matrix: bool = True,
     ):
         super().__init__()
 
@@ -69,6 +70,7 @@ class RETFoundLightning(pl.LightningModule):
         self.base_learning_rate = base_learning_rate
         self.use_original_retfound_ckpt = use_original_retfound_ckpt
         self.num_classes = num_classes
+        self.is_save_confusion_matrix = is_save_confusion_matrix
 
         self.model = create_retfound_model(
             img_size, num_classes, drop_path_rate, global_pool
@@ -210,6 +212,8 @@ class RETFoundLightning(pl.LightningModule):
         self.log("train_loss_step", loss, on_epoch=False, on_step=True, prog_bar=True)
 
         # log train metrics
+        if self.num_classes == 2:
+            y_hat_probs = y_hat_probs[:, 1]
         train_metrics = self.train_metrics(y_hat_probs, y)
         self.log_dict(train_metrics, on_step=True, prog_bar=True)
 
@@ -235,6 +239,9 @@ class RETFoundLightning(pl.LightningModule):
         self.log("val_loss", loss, on_epoch=True)
 
         # log val metrics
+        if self.num_classes == 2:
+            y_hat_probs = y_hat_probs[:, 1]
+
         val_metrics = self.val_metrics(y_hat_probs, y)
         if "val_mcc" in val_metrics:
             val_metrics["val_mcc"] = val_metrics["val_mcc"].float()
@@ -246,24 +253,25 @@ class RETFoundLightning(pl.LightningModule):
         self.val_confusion_matrix.reset()
 
     def save_confusion_metrics(self, confusion_matrix):
-        # 归一化混淆矩阵
-        norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
-            dim=1, keepdim=True
-        )
+        if self.is_save_confusion_matrix:
+            # 归一化混淆矩阵
+            norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
+                dim=1, keepdim=True
+            )
 
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(
-            norm_confusion_matrix.cpu().numpy(), annot=True, fmt=".2f", cmap="Blues"
-        )
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(
+                norm_confusion_matrix.cpu().numpy(), annot=True, fmt=".2f", cmap="Blues"
+            )
 
-        plt.title(f"Normalized Confusion Matrix - Epoch {self.current_epoch}")
-        plt.xlabel("Predicted")
-        plt.ylabel("True")
+            plt.title(f"Normalized Confusion Matrix - Epoch {self.current_epoch}")
+            plt.xlabel("Predicted")
+            plt.ylabel("True")
 
-        plt.savefig(
-            f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
-        )
-        plt.close()
+            plt.savefig(
+                f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
+            )
+            plt.close()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -277,6 +285,8 @@ class RETFoundLightning(pl.LightningModule):
         self.log("test_loss", loss, on_epoch=True)
 
         # log test metrics
+        if self.num_classes == 2:
+            y_hat_probs = y_hat_probs[:, 1]
         test_metrics = self.test_metrics(y_hat_probs, y)
         self.log_dict(test_metrics, on_epoch=True)
 
