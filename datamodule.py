@@ -140,7 +140,7 @@ class PairedImageDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
-            self.train_dataset = PairedImageDataset(
+            self.train_data = PairedImageDataset(
                 self.train_data,
                 self.macula_folder,
                 self.disc_folder,
@@ -148,7 +148,7 @@ class PairedImageDataModule(pl.LightningDataModule):
                 self.disc_img_path_col,
                 self.train_transform,
             )
-            self.val_dataset = PairedImageDataset(
+            self.val_data = PairedImageDataset(
                 self.val_data,
                 self.macula_folder,
                 self.disc_folder,
@@ -164,7 +164,7 @@ class PairedImageDataModule(pl.LightningDataModule):
             )
 
         if stage == "test" or stage is None:
-            self.test_dataset = PairedImageDataset(
+            self.test_data = PairedImageDataset(
                 self.test_data,
                 self.macula_folder,
                 self.disc_folder,
@@ -175,7 +175,7 @@ class PairedImageDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            self.train_dataset,
+            self.train_data,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             sampler=self.sampler,
@@ -183,7 +183,7 @@ class PairedImageDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_dataset,
+            self.val_data,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
@@ -191,7 +191,7 @@ class PairedImageDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(
-            self.test_dataset,
+            self.test_data,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
@@ -274,6 +274,7 @@ class SingleImageDataModule(pl.LightningDataModule):
     def prepare_data(self):
         data = pd.read_excel(self.excel_file)
         data = data[[self.img_path_col, self.label_col]].dropna(how="any")
+        data[[self.label_col]] = data[[self.label_col]].astype(int)
 
         train_data, temp_data = train_test_split(
             data, test_size=0.3, stratify=data[self.label_col], random_state=42
@@ -289,38 +290,28 @@ class SingleImageDataModule(pl.LightningDataModule):
         self.val_data = val_data
         self.test_data = test_data
 
-        # Pre-compute sampling weights
         class_counts = self.train_data[self.label_col].value_counts().sort_index()
         total_samples = len(self.train_data)
         class_weights = torch.FloatTensor(
             total_samples / (len(class_counts) * class_counts)
         )
+
         self.sample_weights = [
-            class_weights[label] for label in self.train_data[self.label_col]
+            class_weights[int(label)] for label in self.train_data[self.label_col]
         ]
 
     def setup(self, stage: Optional[str] = None):
-        data = pd.read_excel(self.excel_file)
-        train_data, temp_data = train_test_split(
-            data, test_size=0.3, stratify=data[self.label_col], random_state=42
-        )
-        val_data, test_data = train_test_split(
-            temp_data,
-            test_size=0.5,
-            stratify=temp_data[self.label_col],
-            random_state=42,
-        )
 
         if stage == "fit" or stage is None:
-            self.train_dataset = SingleImageDataset(
-                df=train_data,
+            self.train_data = SingleImageDataset(
+                df=self.train_data,
                 label_col=self.label_col,
                 img_path_col=self.img_path_col,
                 data_folder=self.data_folder,
                 transform=self.train_transform,
             )
-            self.val_dataset = SingleImageDataset(
-                df=val_data,
+            self.val_data = SingleImageDataset(
+                df=self.val_data,
                 label_col=self.label_col,
                 img_path_col=self.img_path_col,
                 data_folder=self.data_folder,
@@ -334,8 +325,8 @@ class SingleImageDataModule(pl.LightningDataModule):
             )
 
         if stage == "test" or stage is None:
-            self.test_dataset = SingleImageDataset(
-                df=test_data,
+            self.test_data = SingleImageDataset(
+                df=self.test_data,
                 label_col=self.label_col,
                 img_path_col=self.img_path_col,
                 data_folder=self.data_folder,
@@ -344,7 +335,7 @@ class SingleImageDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            self.train_dataset,
+            self.train_data,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             sampler=self.sampler,
@@ -352,7 +343,7 @@ class SingleImageDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_dataset,
+            self.val_data,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
@@ -360,7 +351,7 @@ class SingleImageDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(
-            self.test_dataset,
+            self.test_data,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
