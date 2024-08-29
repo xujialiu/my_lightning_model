@@ -9,6 +9,7 @@ data_cleansing/
 tabular_data/
 data/
 lightning_logs/
+*.ckpt
 
 
 # Byte-compiled / optimized / DLL files
