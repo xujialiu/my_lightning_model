@@ -5,7 +5,7 @@ test*
 original
 trial*
 other_models/
-data_cleansing/
+data_cleansing/*/*.xlsx
 tabular_data/
 data/
 lightning_logs/
