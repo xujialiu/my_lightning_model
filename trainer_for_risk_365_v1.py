@@ -14,7 +14,7 @@ checkpoint_callback = ModelCheckpoint(
     monitor="val_auc_roc",
     filename="retfound-{epoch:02d}-{val_auc_roc:.2f}",
     every_n_epochs=1,
-    save_top_k=10,
+    # save_top_k=10,
 )
 
 tensorboard_logger = TensorBoardLogger(save_dir="/mnt/4T/xujialiu-ckpt/my_lightning_model/risk_365", name="tensorboard")
@@ -56,5 +56,7 @@ trainer.fit(
     model,
     datamodule=datamodule,
 )
+
+trainer.test
 
 # nohup /home/xujialiu/miniconda3/envs/pytorch/bin/python /mnt/4T/xujialiu-ckpt/my_lightning_model/trainer_for_risk_365.py > risk_365_output.log 2>&1 &
