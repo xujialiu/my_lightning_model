@@ -61,6 +61,9 @@ class RETFoundLightning(pl.LightningModule):
 
         pl.seed_everything(42)
 
+        self.val_outputs = {}
+        self.test_outputs = {}
+
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.weight_decay = weight_decay
@@ -134,7 +137,7 @@ class RETFoundLightning(pl.LightningModule):
                     "f1": BinaryF1Score(),
                     "mcc": BinaryMatthewsCorrCoef(),
                     "precision": BinaryPrecision(),
-                    "recall": BinaryRecall(),
+                    "sensitivity": BinaryRecall(),
                     "specificity": BinarySpecificity(),
                 },
                 prefix=prefix,
@@ -166,9 +169,7 @@ class RETFoundLightning(pl.LightningModule):
                     "f1": MulticlassF1Score(
                         num_classes=self.num_classes, average="macro"
                     ),
-                    "mcc": MulticlassMatthewsCorrCoef(num_classes=self.num_classes).to(
-                        torch.float32
-                    ),
+                    "mcc": MulticlassMatthewsCorrCoef(num_classes=self.num_classes),
                 },
                 prefix=prefix,
             )
@@ -242,36 +243,44 @@ class RETFoundLightning(pl.LightningModule):
         if self.num_classes == 2:
             y_hat_probs = y_hat_probs[:, 1]
 
-        val_metrics = self.val_metrics(y_hat_probs, y)
-        if "val_mcc" in val_metrics:
-            val_metrics["val_mcc"] = val_metrics["val_mcc"].float()
-        self.log_dict(val_metrics, on_epoch=True)
+        self.val_outputs.setdefault("y_hat_probs", []).append(y_hat_probs)
+        self.val_outputs.setdefault("y", []).append(y)
+        return loss
 
     def on_validation_epoch_end(self):
-        confusion_matrix = self.val_confusion_matrix.compute()
-        self.save_confusion_metrics(confusion_matrix)
-        self.val_confusion_matrix.reset()
+        # plot val confusion matrix
+        if self.is_save_confusion_matrix:
+            confusion_matrix = self.val_confusion_matrix.compute()
+            self.save_confusion_metrics(confusion_matrix)
+            self.val_confusion_matrix.reset()
+
+        # log val metrics
+        y_hat_probs = torch.cat(self.val_outputs["y_hat_probs"], dim=0)
+        y = torch.cat(self.val_outputs["y"], dim=0)
+        val_metrics = self.val_metrics(y_hat_probs, y)
+        self.log_dict(val_metrics, on_epoch=True)
+
+        self.val_outputs.clear()
 
     def save_confusion_metrics(self, confusion_matrix):
-        if self.is_save_confusion_matrix:
-            # 归一化混淆矩阵
-            norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
-                dim=1, keepdim=True
-            )
+        # 归一化混淆矩阵
+        norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
+            dim=1, keepdim=True
+        )
 
-            plt.figure(figsize=(10, 8))
-            sns.heatmap(
-                norm_confusion_matrix.cpu().numpy(), annot=True, fmt=".2f", cmap="Blues"
-            )
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            norm_confusion_matrix.cpu().numpy(), annot=True, fmt=".2f", cmap="Blues"
+        )
 
-            plt.title(f"Normalized Confusion Matrix - Epoch {self.current_epoch}")
-            plt.xlabel("Predicted")
-            plt.ylabel("True")
+        plt.title(f"Normalized Confusion Matrix - Epoch {self.current_epoch}")
+        plt.xlabel("Predicted")
+        plt.ylabel("True")
 
-            plt.savefig(
-                f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
-            )
-            plt.close()
+        plt.savefig(
+            f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
+        )
+        plt.close()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -280,15 +289,25 @@ class RETFoundLightning(pl.LightningModule):
         y_hat = torch.argmax(y_hat_logits, dim=1)
         y_hat_probs = F.softmax(y_hat_logits, dim=1)
 
-        loss = self.criterion(y_hat_logits, y_logits)
-
-        self.log("test_loss", loss, on_epoch=True)
-
         # log test metrics
         if self.num_classes == 2:
             y_hat_probs = y_hat_probs[:, 1]
+
+        self.test_outputs.setdefault("y_hat_probs", []).append(y_hat_probs)
+        self.test_outputs.setdefault("y", []).append(y)
+
+        loss = self.criterion(y_hat_logits, y_logits)
+        self.log("test_loss", loss, on_epoch=True)
+
+    def on_test_epoch_end(self):
+        y_hat_probs = torch.cat(self.test_outputs["y_hat_probs"], dim=0)
+        y = torch.cat(self.test_outputs["y"], dim=0)
+
         test_metrics = self.test_metrics(y_hat_probs, y)
         self.log_dict(test_metrics, on_epoch=True)
+
+        # 清空测试输出
+        self.test_outputs.clear()
 
     def configure_optimizers(self):
 
