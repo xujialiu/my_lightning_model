@@ -57,4 +57,4 @@ trainer.fit(
     datamodule=datamodule,
 )
 
-# nohup /home/xujialiu/miniconda3/envs/pytorch/bin/python /mnt/4T/xujialiu-ckpt/my_lightning_model/trainer_for_risk_365.py > risk_365_output.log 2>&1 &
+# nohup /home/xujialiu/miniconda3/envs/pytorch/bin/python /mnt/4T/xujialiu-ckpt/my_lightning_model/trainer_for_risk_365_v1.py > risk_365_output.log 2>&1 &
