@@ -2,7 +2,7 @@ from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from lightning.pytorch.strategies import DDPStrategy
-from lightningmodule import RETFoundLightning
+from retfound_base_lightningmodule import RETFoundLightning
 
 from datamodule import SingleImageDataModule
 
@@ -56,7 +56,5 @@ trainer.fit(
     model,
     datamodule=datamodule,
 )
-
-trainer.test
 
 # nohup /home/xujialiu/miniconda3/envs/pytorch/bin/python /mnt/4T/xujialiu-ckpt/my_lightning_model/trainer_for_risk_365.py > risk_365_output.log 2>&1 &
