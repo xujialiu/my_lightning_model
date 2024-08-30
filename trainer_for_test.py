@@ -2,7 +2,7 @@ from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from lightning.pytorch.strategies import DDPStrategy
-from lightningmodule import RETFoundLightning
+from retfound_base_lightningmodule import RETFoundLightning
 
 from datamodule import SingleImageDataModule
 
