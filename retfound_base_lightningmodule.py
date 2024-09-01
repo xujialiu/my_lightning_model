@@ -183,9 +183,6 @@ class RETFoundLightning(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def on_fit_start(self) -> None:
-        self.opt = self.optimizers()
-
     def training_step(self, batch, batch_idx):
         # 每一个batch都要更新学习率
         if batch_idx % self.trainer.accumulate_grad_batches == 0:
@@ -234,8 +231,6 @@ class RETFoundLightning(pl.LightningModule):
         y_hat = torch.argmax(y_hat_logits, dim=1)
         y_hat_probs = F.softmax(y_hat_logits, dim=1)
 
-        self.val_confusion_matrix(y_hat, y)
-
         loss = self.criterion(y_hat_logits, y_logits)
         self.log("val_loss", loss, on_epoch=True)
 
@@ -248,17 +243,18 @@ class RETFoundLightning(pl.LightningModule):
         return loss
 
     def on_validation_epoch_end(self):
-        # plot val confusion matrix
-        if self.is_save_confusion_matrix:
-            confusion_matrix = self.val_confusion_matrix.compute()
-            self.save_confusion_metrics(confusion_matrix)
-            self.val_confusion_matrix.reset()
 
         # log val metrics
         y_hat_probs = torch.cat(self.val_outputs["y_hat_probs"], dim=0)
         y = torch.cat(self.val_outputs["y"], dim=0)
         val_metrics = self.val_metrics(y_hat_probs, y)
         self.log_dict(val_metrics, on_epoch=True)
+
+        # save and plot val confusion matrix
+        if self.is_save_confusion_matrix:
+            confusion_matrix = self.val_confusion_matrix(y_hat_probs, y)
+            self.save_confusion_metrics(confusion_matrix)
+            self.val_confusion_matrix.reset()
 
         self.val_outputs.clear()
 
