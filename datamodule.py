@@ -44,9 +44,9 @@ class PairedImageDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
-        img_name_macula = self.df.iloc[idx].loc[self.macula_img_path_col]
-        img_name_disc = self.df.iloc[idx].loc[self.disc_img_path_col]
-        label = self.df.iloc[idx].loc[self.label_col]
+        img_name_macula = self.df.iloc[idx, :].loc[self.macula_img_path_col]
+        img_name_disc = self.df.iloc[idx, :].loc[self.disc_img_path_col]
+        label = self.df.iloc[idx, :].loc[self.label_col]
 
         img_path_macula = Path(self.macula_folder) / img_name_macula
         img_path_disc = Path(self.disc_folder) / img_name_disc
@@ -112,6 +112,8 @@ class PairedImageDataModule(pl.LightningDataModule):
         data = data[
             [self.macula_img_path_col, self.disc_img_path_col, self.label_col]
         ].dropna(how="any")
+        data = data.reset_index(drop=True)
+        data[[self.label_col]] = data[[self.label_col]].astype(int)
 
         train_data, temp_data = train_test_split(
             data, test_size=0.3, stratify=data[self.label_col], random_state=42
@@ -135,26 +137,28 @@ class PairedImageDataModule(pl.LightningDataModule):
             total_samples / (len(class_counts) * class_counts)
         )
         self.sample_weights = [
-            class_weights[label] for label in self.train_data[self.label_col]
+            class_weights[int(label)] for label in self.train_data[self.label_col]
         ]
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
             self.train_data = PairedImageDataset(
-                self.train_data,
-                self.macula_folder,
-                self.disc_folder,
-                self.macula_img_path_col,
-                self.disc_img_path_col,
-                self.train_transform,
+                df=self.train_data,
+                macula_folder=self.macula_folder,
+                disc_folder=self.disc_folder,
+                macula_img_path_col=self.macula_img_path_col,
+                disc_img_path_col=self.disc_img_path_col,
+                label_col=self.label_col,
+                transform=self.train_transform,
             )
             self.val_data = PairedImageDataset(
-                self.val_data,
-                self.macula_folder,
-                self.disc_folder,
-                self.macula_img_path_col,
-                self.disc_img_path_col,
-                self.val_test_predict_transform,
+                df=self.val_data,
+                macula_folder=self.macula_folder,
+                disc_folder=self.disc_folder,
+                macula_img_path_col=self.macula_img_path_col,
+                disc_img_path_col=self.disc_img_path_col,
+                label_col=self.label_col,
+                transform=self.val_test_predict_transform,
             )
 
             self.sampler = WeightedRandomSampler(
@@ -165,12 +169,13 @@ class PairedImageDataModule(pl.LightningDataModule):
 
         if stage == "test" or stage is None:
             self.test_data = PairedImageDataset(
-                self.test_data,
-                self.macula_folder,
-                self.disc_folder,
-                self.macula_img_path_col,
-                self.disc_img_path_col,
-                self.val_test_predict_transform,
+                df=self.test_data,
+                macula_folder=self.macula_folder,
+                disc_folder=self.disc_folder,
+                macula_img_path_col=self.macula_img_path_col,
+                disc_img_path_col=self.disc_img_path_col,
+                label_col=self.label_col,
+                transform=self.val_test_predict_transform,
             )
 
     def train_dataloader(self):
@@ -274,6 +279,7 @@ class SingleImageDataModule(pl.LightningDataModule):
     def prepare_data(self):
         data = pd.read_excel(self.excel_file)
         data = data[[self.img_path_col, self.label_col]].dropna(how="any")
+        data = data.reset_index(drop=True)
         data[[self.label_col]] = data[[self.label_col]].astype(int)
 
         train_data, temp_data = train_test_split(
@@ -297,7 +303,7 @@ class SingleImageDataModule(pl.LightningDataModule):
         )
 
         self.sample_weights = [
-            class_weights[int(label)] for label in self.train_data[self.label_col]
+            class_weights[label] for label in self.train_data[self.label_col]
         ]
 
     def setup(self, stage: Optional[str] = None):
