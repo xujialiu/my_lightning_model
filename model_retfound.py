@@ -11,7 +11,7 @@ class RETFoundModel(VisionTransformer):
         super().__init__(**kwargs)
         self.pos_embed.requires_grad_(False)  # freeze positional embedding
         self.global_pool = kwargs["global_pool"]
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.forward_features(x)
         x = self.forward_head(x)
