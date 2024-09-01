@@ -10,9 +10,9 @@ tabular_data/
 data/
 lightning_logs/
 *.ckpt
-risk_365/
-risk_365_test/
-
+risk_365*/
+testing/
+do-not-track/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
