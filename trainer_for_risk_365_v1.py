@@ -13,7 +13,8 @@ EPOCHS = 50
 checkpoint_callback = ModelCheckpoint(
     monitor="val_auc_roc",
     filename="retfound-{epoch:02d}-{val_auc_roc:.2f}",
-    save_top_k=EPOCHS,
+    every_n_epochs=1,
+    save_top_k=-1
 )
 
 tensorboard_logger = TensorBoardLogger(save_dir="./risk_365", name="tensorboard")
@@ -31,9 +32,9 @@ trainer = Trainer(
     use_distributed_sampler=False,
     benchmark=True,
     precision="16-mixed",
-    # limit_train_batches=0.01,
-    # limit_val_batches=0.03,
-    # limit_test_batches=0.03,
+    limit_train_batches=0.01,
+    limit_val_batches=0.03,
+    limit_test_batches=0.03,
 )
 
 model = RETFoundLightning(
