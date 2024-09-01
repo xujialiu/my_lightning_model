@@ -13,12 +13,11 @@ EPOCHS = 50
 checkpoint_callback = ModelCheckpoint(
     monitor="val_auc_roc",
     filename="retfound-{epoch:02d}-{val_auc_roc:.2f}",
-    every_n_epochs=1,
-    # save_top_k=10,
+    save_top_k=EPOCHS,
 )
 
-tensorboard_logger = TensorBoardLogger(save_dir="/mnt/4T/xujialiu-ckpt/my_lightning_model/risk_365", name="tensorboard")
-csv_logger = CSVLogger(save_dir="/mnt/4T/xujialiu-ckpt/my_lightning_model/risk_365", name="csv", flush_logs_every_n_steps=20)
+tensorboard_logger = TensorBoardLogger(save_dir="./risk_365", name="tensorboard")
+csv_logger = CSVLogger(save_dir="./risk_365", name="csv", flush_logs_every_n_steps=20)
 loggers = [tensorboard_logger, csv_logger]
 
 trainer = Trainer(
@@ -32,7 +31,7 @@ trainer = Trainer(
     use_distributed_sampler=False,
     benchmark=True,
     precision="16-mixed",
-    # limit_train_batches=0.05,
+    # limit_train_batches=0.01,
     # limit_val_batches=0.03,
     # limit_test_batches=0.03,
 )
@@ -41,7 +40,7 @@ model = RETFoundLightning(
     use_original_retfound_ckpt="/home/xujialiu/mnt-4T-xujialiu/my_lightning_model/xujialiu-mnt-4t/my-model/other_models/model-checkpoints/RETFound.pth",
     img_size=INPUT_SIZE,
     warmup_epochs=WARMUP_EPOCHS,
-    num_classes=2
+    num_classes=2,
 )
 datamodule = SingleImageDataModule(
     excel_file="/home/xujialiu/mnt-4T-xujialiu/my_lightning_model/data_cleansing/calculate time diff/macula_table_risk_level.xlsx",
