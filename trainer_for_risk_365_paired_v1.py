@@ -43,6 +43,7 @@ trainer = Trainer(
 
 model = PairedRETFoundLightning(
     use_original_retfound_ckpt="/home/xujialiu/mnt-4T-xujialiu/my_lightning_model/xujialiu-mnt-4t/my-model/other_models/model-checkpoints/RETFound.pth",
+    base_learning_rate=5e-4,
     img_size=INPUT_SIZE,
     warmup_epochs=WARMUP_EPOCHS,
     num_classes=2,
