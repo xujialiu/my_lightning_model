@@ -9,19 +9,20 @@ INPUT_SIZE = 512
 WARMUP_EPOCHS = 10
 EPOCHS = 50
 BATCH_SIZE = 1
-BASE_LR = 6.25e-4
+ACCUMULATE_GRAD_BATCHES = 32
+BASE_LR = 1e-4
+# DIR_PATH = "./test_convnext"
+DIR_PATH = "./test_mixin"
 
 checkpoint_callback = ModelCheckpoint(
     monitor="val_auc_roc",
-    filename="convnext-{epoch:02d}-{val_auc_roc:.2f}",
+    filename="convnext-{epoch:02d}-{val_auc_roc:.3f}-{val_auc_pr:.3f}",
     every_n_epochs=1,
     save_top_k=-1,
 )
 
-tensorboard_logger = TensorBoardLogger(save_dir="./test_convnext", name="tensorboard")
-csv_logger = CSVLogger(
-    save_dir="./test_convnext", name="csv", flush_logs_every_n_steps=20
-)
+tensorboard_logger = TensorBoardLogger(save_dir=DIR_PATH, name="tensorboard")
+csv_logger = CSVLogger(save_dir=DIR_PATH, name="csv", flush_logs_every_n_steps=20)
 loggers = [tensorboard_logger, csv_logger]
 
 trainer = Trainer(
@@ -31,14 +32,14 @@ trainer = Trainer(
     max_epochs=EPOCHS,
     callbacks=[checkpoint_callback],
     logger=[tensorboard_logger, csv_logger],
-    accumulate_grad_batches=32,
+    accumulate_grad_batches=ACCUMULATE_GRAD_BATCHES,
     use_distributed_sampler=False,
     benchmark=True,
     precision="16-mixed",
     num_sanity_val_steps=0,
-    # limit_train_batches=0.01,
-    # limit_val_batches=0.03,
-    # limit_test_batches=0.03,
+    limit_train_batches=0.01,
+    limit_val_batches=0.03,
+    limit_test_batches=0.03,
 )
 
 model = ConvNextLightning(

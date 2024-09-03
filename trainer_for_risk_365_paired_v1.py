@@ -11,17 +11,21 @@ INPUT_SIZE = 896
 WARMUP_EPOCHS = 10
 EPOCHS = 50
 BATCH_SIZE = 3
+BASE_LR = 5e-4
 ACCUMULATE_GRAD_BATCHES = 11
+# DIR_PATH = "./risk_365_paired"
+DIR_PATH = "./test_mixin"
+
 
 checkpoint_callback = ModelCheckpoint(
     monitor="val_auc_roc",
-    filename="retfound-{epoch:02d}-{val_auc_roc:.2f}",
+    filename="retfound-{epoch:02d}-{val_auc_roc:.3f}-{val_auc_pr:.3f}",
     every_n_epochs=1,
     save_top_k=-1
 )
 
-tensorboard_logger = TensorBoardLogger(save_dir="./risk_365_paired", name="tensorboard")
-csv_logger = CSVLogger(save_dir="./risk_365_paired", name="csv", flush_logs_every_n_steps=20)
+tensorboard_logger = TensorBoardLogger(save_dir=DIR_PATH, name="tensorboard")
+csv_logger = CSVLogger(save_dir=DIR_PATH, name="csv", flush_logs_every_n_steps=20)
 loggers = [tensorboard_logger, csv_logger]
 
 trainer = Trainer(
@@ -43,7 +47,7 @@ trainer = Trainer(
 
 model = PairedRETFoundLightning(
     use_original_retfound_ckpt="/home/xujialiu/mnt-4T-xujialiu/my_lightning_model/xujialiu-mnt-4t/my-model/other_models/model-checkpoints/RETFound.pth",
-    base_learning_rate=5e-4,
+    base_learning_rate=BASE_LR,
     img_size=INPUT_SIZE,
     warmup_epochs=WARMUP_EPOCHS,
     num_classes=2,
