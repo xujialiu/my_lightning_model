@@ -34,7 +34,7 @@ from torchmetrics.classification import (
 )
 from torchmetrics.classification import BinaryConfusionMatrix, MulticlassConfusionMatrix
 import seaborn as sns
-from base_lightningmodule_mixin import ValMixin, TestMixin
+from lightningmodule_mixin_base import ValMixin, TestMixin
 
 
 class ConvNextLightning(
