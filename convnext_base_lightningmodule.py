@@ -87,11 +87,10 @@ class ConvNextLightning(
             f"convnextv2_huge.fcmae_ft_in22k_in1k_{img_size}",
             pretrained=pretrained_from_timm,
             num_classes=num_classes,
+            drop_path_rate=drop_path_rate
         )
 
         self.model.depths = [3, 3, 27, 3]
-
-        self.model.drop_rate = drop_path_rate
 
         mixup_active = (mixup > 0) or (cutmix > 0.0) or (cutmix_minmax is not None)
 
