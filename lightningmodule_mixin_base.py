@@ -2,7 +2,7 @@ from matplotlib import pyplot as plt
 import torch
 import torch.nn.functional as F
 import seaborn as sns
-import lightning.pytorch as pl
+
 
 class TestMixin:
     def on_test_epoch_start(self):
@@ -34,6 +34,9 @@ class TestMixin:
 
 
 class ValMixin:
+    def on_validate_epoch_start(self):
+        self.val_outputs.clear()
+    
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat_logits = self(x)
