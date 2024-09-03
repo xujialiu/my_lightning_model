@@ -2,7 +2,7 @@ import lightning.pytorch as pl
 from matplotlib import pyplot as plt
 from torch.nn.init import trunc_normal_
 from torch.optim.adamw import AdamW
-import retfound_lr_sched
+import retfound_lr_sched as lr_sched
 from retfound_pos_embed import interpolate_pos_embed
 from model_retfound import create_retfound_model
 import torch
@@ -183,10 +183,9 @@ class RETFoundLightning(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def training_step(self, batch, batch_idx):
-        # 每一个batch都要更新学习率
+    def _lr_scheduler(self, batch, batch_idx):
         if batch_idx % self.trainer.accumulate_grad_batches == 0:
-            retfound_lr_sched.adjust_learning_rate(
+            lr_sched.adjust_learning_rate(
                 self.optimizers(),
                 (
                     batch_idx / self.trainer.num_training_batches
@@ -197,6 +196,10 @@ class RETFoundLightning(pl.LightningModule):
                 lr=self.learning_rate,
                 epochs=self.trainer.max_epochs,
             )
+
+    def training_step(self, batch, batch_idx):
+        # 每一个batch都要更新学习率
+        self._lr_scheduler(batch, batch_idx)
 
         x, y = batch
         y_hat_logits = self(x)
@@ -253,12 +256,12 @@ class RETFoundLightning(pl.LightningModule):
         # save and plot val confusion matrix
         if self.is_save_confusion_matrix:
             confusion_matrix = self.val_confusion_matrix(y_hat_probs, y)
-            self.save_confusion_metrics(confusion_matrix)
+            self._save_confusion_metrics_fig(confusion_matrix)
             self.val_confusion_matrix.reset()
 
         self.val_outputs.clear()
 
-    def save_confusion_metrics(self, confusion_matrix):
+    def _save_confusion_metrics_fig(self, confusion_matrix):
         # 归一化混淆矩阵
         norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
             dim=1, keepdim=True

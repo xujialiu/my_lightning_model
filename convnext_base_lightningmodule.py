@@ -3,7 +3,7 @@ import lightning.pytorch as pl
 from matplotlib import pyplot as plt
 from torch.nn.init import trunc_normal_
 from torch.optim.adamw import AdamW
-import convnext_lr_sched
+import convnext_lr_sched as lr_sched
 from retfound_pos_embed import interpolate_pos_embed
 from model_retfound import create_retfound_model
 import torch
@@ -84,7 +84,7 @@ class ConvNextLightning(pl.LightningModule):
             pretrained=pretrained_from_timm,
             num_classes=num_classes,
         )
-        
+
         self.model.depths = [3, 3, 27, 3]
 
         self.model.drop_rate = drop_path_rate
@@ -202,10 +202,9 @@ class ConvNextLightning(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def training_step(self, batch, batch_idx):
-        # 每一个batch都要更新学习率
+    def _lr_scheduler(self, batch, batch_idx):
         if batch_idx % self.trainer.accumulate_grad_batches == 0:
-            convnext_lr_sched.adjust_learning_rate(
+            lr_sched.adjust_learning_rate(
                 optimizer=self.optimizers(),
                 epoch=self.current_epoch,
                 epochs=self.trainer.max_epochs,
@@ -213,6 +212,10 @@ class ConvNextLightning(pl.LightningModule):
                 min_lr=self.min_lr,
                 lr=self.learning_rate,
             )
+
+    def training_step(self, batch, batch_idx):
+        # 每一个batch都要更新学习率
+        self._lr_scheduler(batch, batch_idx)
 
         x, y = batch
         y_hat_logits = self(x)
@@ -269,12 +272,12 @@ class ConvNextLightning(pl.LightningModule):
         # save and plot val confusion matrix
         if self.is_save_confusion_matrix:
             confusion_matrix = self.val_confusion_matrix(y_hat_probs, y)
-            self.save_confusion_metrics(confusion_matrix)
+            self._save_confusion_metrics_fig(confusion_matrix)
             self.val_confusion_matrix.reset()
 
         self.val_outputs.clear()
 
-    def save_confusion_metrics(self, confusion_matrix):
+    def _save_confusion_metrics_fig(self, confusion_matrix):
         # 归一化混淆矩阵
         norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
             dim=1, keepdim=True
@@ -293,6 +296,9 @@ class ConvNextLightning(pl.LightningModule):
             f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
         )
         plt.close()
+
+    def on_test_epoch_start(self):
+        self.test_outputs.clear()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -317,9 +323,6 @@ class ConvNextLightning(pl.LightningModule):
 
         test_metrics = self.test_metrics(y_hat_probs, y)
         self.log_dict(test_metrics, on_epoch=True)
-
-        # 清空测试输出
-        self.test_outputs.clear()
 
     def configure_optimizers(self):
 
