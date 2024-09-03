@@ -36,16 +36,13 @@ def get_num_layer_for_convnext_single(var_name, depths):
     Each layer is assigned distinctive layer ids
     """
     if var_name.startswith("stem"):
-        print(var_name)
         stage_id = int(var_name.split(".")[1])
         layer_id = sum(depths[:stage_id]) + 1
         return layer_id
 
     elif var_name.startswith("stages"):
-        print(var_name)
-        
         stage_id = int(var_name.split(".")[1])
-        block_id = int(var_name.split(".")[3])
+        block_id = int(var_name.split(".")[3])   # timm的在第3, 而ConvNeXt_V2在第2
         layer_id = sum(depths[:stage_id]) + block_id + 1
         return layer_id
 
