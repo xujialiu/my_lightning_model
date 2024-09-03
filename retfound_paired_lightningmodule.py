@@ -2,7 +2,7 @@ import lightning.pytorch as pl
 from matplotlib import pyplot as plt
 from torch.nn.init import trunc_normal_
 from torch.optim.adamw import AdamW
-import retfound_lr_sched
+import retfound_lr_sched as lr_sched
 from retfound_pos_embed import interpolate_pos_embed
 from model_retfound import create_retfound_model
 from model_retfound_paired import create_dual_input_retfound_model
@@ -195,7 +195,7 @@ class PairedRETFoundLightning(
     def training_step(self, batch, batch_idx):
         # 每一个batch都要更新学习率
         if batch_idx % self.trainer.accumulate_grad_batches == 0:
-            retfound_lr_sched.adjust_learning_rate(
+            lr_sched.adjust_learning_rate(
                 self.optimizers(),
                 (
                     batch_idx / self.trainer.num_training_batches

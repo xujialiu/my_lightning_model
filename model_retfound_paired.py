@@ -22,7 +22,7 @@ class DualInputRETFoundModel(VisionTransformer):
         x2 = self.forward_features(x2)
 
         x = torch.cat((x1, x2), dim=-1)
-
+        print(x.shape)
         x = self.forward_head(x)
 
         if not self.global_pool:
