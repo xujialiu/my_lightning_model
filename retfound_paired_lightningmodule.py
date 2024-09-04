@@ -33,10 +33,11 @@ from torchmetrics.classification import (
 )
 from torchmetrics.classification import BinaryConfusionMatrix, MulticlassConfusionMatrix
 import seaborn as sns
-from lightningmodule_mixin_paired import ValMixin, TestMixin
+from lightningmodule_mixin_paired import ValMixin, TestMixin, PlotMixin
 
 
 class PairedRETFoundLightning(
+    PlotMixin,
     ValMixin,
     TestMixin,
     pl.LightningModule,
@@ -125,6 +126,7 @@ class PairedRETFoundLightning(
         self.val_metrics = self._get_eval_metrics(prefix="val_")
         self.test_metrics = self._get_eval_metrics(prefix="test_")
         self.val_confusion_matrix = self._get_confusion_matrix()
+        self.test_confusion_matrix = self._get_confusion_matrix()
 
     def _get_train_metrics(self):
         if self.num_classes == 2:
