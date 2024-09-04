@@ -29,11 +29,12 @@ from torchmetrics.classification import (
     MulticlassSpecificity,
 )
 from torchmetrics.classification import BinaryConfusionMatrix, MulticlassConfusionMatrix
-from lightningmodule_mixin_paired import ValMixin, TestMixin
+from lightningmodule_mixin_paired import ValMixin, TestMixin, PlotMixin
 from model_convnext_paired import DualInputConvNeXt
 
 
 class PairedConvNextLightning(
+    PlotMixin,
     ValMixin,
     TestMixin,
     pl.LightningModule,
@@ -118,6 +119,7 @@ class PairedConvNextLightning(
         self.val_metrics = self._get_eval_metrics(prefix="val_")
         self.test_metrics = self._get_eval_metrics(prefix="test_")
         self.val_confusion_matrix = self._get_confusion_matrix()
+        self.test_confusion_matrix = self._get_confusion_matrix()
 
     def _get_layer_decay_assigner(self):
         if self.layer_decay < 1.0 or self.layer_decay > 1.0:

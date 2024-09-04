@@ -34,10 +34,11 @@ from torchmetrics.classification import (
 )
 from torchmetrics.classification import BinaryConfusionMatrix, MulticlassConfusionMatrix
 import seaborn as sns
-from lightningmodule_mixin_base import ValMixin, TestMixin
+from lightningmodule_mixin_base import ValMixin, TestMixin, PlotMixin
 
 
 class ConvNextLightning(
+    PlotMixin,
     ValMixin,
     TestMixin,
     pl.LightningModule,
@@ -87,7 +88,7 @@ class ConvNextLightning(
             f"convnextv2_huge.fcmae_ft_in22k_in1k_{img_size}",
             pretrained=pretrained_from_timm,
             num_classes=num_classes,
-            drop_path_rate=drop_path_rate
+            drop_path_rate=drop_path_rate,
         )
 
         self.model.depths = [3, 3, 27, 3]
@@ -122,6 +123,7 @@ class ConvNextLightning(
         self.val_metrics = self._get_eval_metrics(prefix="val_")
         self.test_metrics = self._get_eval_metrics(prefix="test_")
         self.val_confusion_matrix = self._get_confusion_matrix()
+        self.test_confusion_matrix = self._get_confusion_matrix()
 
     def _get_layer_decay_assigner(self):
         if self.layer_decay < 1.0 or self.layer_decay > 1.0:

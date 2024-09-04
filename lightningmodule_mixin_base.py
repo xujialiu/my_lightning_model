@@ -32,11 +32,16 @@ class TestMixin:
         test_metrics = self.test_metrics(y_hat_probs, y)
         self.log_dict(test_metrics, on_epoch=True)
 
+        # plot
+        confusion_matrix = self.val_confusion_matrix(y_hat_probs, y)
+        self._save_confusion_metrics_fig(confusion_matrix)
+        self.val_confusion_matrix.reset()
+
 
 class ValMixin:
     def on_validate_epoch_start(self):
         self.val_outputs.clear()
-    
+
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat_logits = self(x)
@@ -70,6 +75,9 @@ class ValMixin:
             self.val_confusion_matrix.reset()
 
         self.val_outputs.clear()
+
+
+class PlotMixin:
 
     def _save_confusion_metrics_fig(self, confusion_matrix):
         # 归一化混淆矩阵

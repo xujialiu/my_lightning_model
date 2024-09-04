@@ -7,7 +7,7 @@ import seaborn as sns
 class ValMixin:
     def on_validate_epoch_start(self):
         self.val_outputs.clear()
-    
+
     def validation_step(self, batch, batch_idx):
         x1, x2, y = batch
         y_hat_logits = self(x1, x2)
@@ -38,27 +38,6 @@ class ValMixin:
             confusion_matrix = self.val_confusion_matrix(y_hat_probs, y)
             self._save_confusion_metrics_fig(confusion_matrix)
             self.val_confusion_matrix.reset()
-
-    def _save_confusion_metrics_fig(self, confusion_matrix):
-
-        # 归一化混淆矩阵
-        norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
-            dim=1, keepdim=True
-        )
-
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(
-            norm_confusion_matrix.cpu().numpy(), annot=True, fmt=".2f", cmap="Blues"
-        )
-
-        plt.title(f"Normalized Confusion Matrix - Epoch {self.current_epoch}")
-        plt.xlabel("Predicted")
-        plt.ylabel("True")
-
-        plt.savefig(
-            f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
-        )
-        plt.close()
 
 
 class TestMixin:
@@ -92,3 +71,31 @@ class TestMixin:
 
         test_metrics = self.test_metrics(y_hat_probs, y)
         self.log_dict(test_metrics, on_epoch=True)
+
+        # plot
+        confusion_matrix = self.val_confusion_matrix(y_hat_probs, y)
+        self._save_confusion_metrics_fig(confusion_matrix)
+        self.val_confusion_matrix.reset()
+
+
+class PlotMixin:
+
+    def _save_confusion_metrics_fig(self, confusion_matrix):
+        # 归一化混淆矩阵
+        norm_confusion_matrix = confusion_matrix / confusion_matrix.sum(
+            dim=1, keepdim=True
+        )
+
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            norm_confusion_matrix.cpu().numpy(), annot=True, fmt=".2f", cmap="Blues"
+        )
+
+        plt.title(f"Normalized Confusion Matrix - Epoch {self.current_epoch}")
+        plt.xlabel("Predicted")
+        plt.ylabel("True")
+
+        plt.savefig(
+            f"{self.trainer.logger.log_dir}/normalized_confusion_matrix_epoch_{self.current_epoch}.png"
+        )
+        plt.close()
